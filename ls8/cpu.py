@@ -2,61 +2,59 @@
 
 import sys
 
+PRN = 0b01000111
+LDI = 0b10000010
+HLT = 0b00000001
+MUL = 0b10100010
+PUSH = 0b01000101
+POP = 0b01000110
+
 
 class CPU:
     """Main CPU class."""
 
     def __init__(self):
         """Construct a new CPU."""
-       self.register = [0] * 8
-       self.ram = [0] * 256
-       self.pc = 0
-       self.running = False
-       self.HLT = 0b00000001
-       self.LDI = 0b10000010
-       self.PRN = 0b01000111
-       self.MUL = 0b10100010
-       self.PUSH = 0b01000101
-       self.POP = 0b01000110
-       self.SPL = 7
-       self.branchtable = {}
-       self.branchtable[self.HLT] = self.handle_hlt
-       self.branchtable[self.LDI] = self.handle_lid
-       self.branchtable[self.PRN] = self.handle_prn
-       self.branchtable[self.MUL] = self.handle_mul
-       self.branchtable[self.PUSH] = self.handle_push
-       self.branchtable[self.POP] = self.handle_pop
+        self.ram = [0] * 256
+        self.reg = [0] * 8
+        self.pc = 0
+        self.running = True
+        self.sp = 7
+        self.program_filename = ""
+
+        self.branchtable = {}
+        self.branchtable[HLT] = self.handle_halt
+        self.branchtable[LDI] = self.handle_ldi
+        self.branchtable[PRN] = self.handle_prn
+        self.branchtable[MUL] = self.handle_mul
+        self.branchtable[PUSH] = self.handle_push
+        self.branchtable[POP] = self.handle_pop
 
     def load(self):
         """Load a program into memory."""
-        if len(sys.argv) !=2:
-            print("usage: file.py <filename>", file=sys.stderr)
-
         try:
-            with open(sys.argv[1]) as ff:
-                lines = ff.readlines()
-                program = []
-                for lines in lines:
-                    if line[0] in "01":
-                        new_line = int(line[:8], 2)
-                        program.append(new_line)
             address = 0
+            with open(self.program_filename) as f:
+                for lines in f:
+                    comment_split = line.split("#")
+                    num = comment_split[0].strip()
+                    if len(num) == 0:
+                        continue
 
-            # For now, we've just hardcoded a program:
+                    value = int(num, 2)
+                    self.ram[address] = value
+                    address += 1
 
-            program = [
-                # From print8.ls8
-                0b10000010, # LDI R0,8
-                0b00000000,
-                0b00001000,
-                0b01000111, # PRN R0
-                0b00000000,
-                0b00000001, # HLT
-            ]
+            with open(self.program_filename) as f:
+                for line in f:
+                    comment_split = line.spit("#")
+                    num = comment_split[0].strip()
 
-            for instruction in program:
-                self.ram[address] = instruction
-                address += 1
+                    if len(num) == 0:
+                        continue
+                        value = int(num, 2)
+                        self.ram[address] = value
+                    address += 1
         except FileNotFoundError:
             print(f"{sys.argv[0]}: {sys.argv[1]} not found")
             sys.exit(2)
@@ -66,7 +64,8 @@ class CPU:
 
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
-        # elif op == "SUB": etc
+        elif op == "MUL":
+            self.reg[reg_a] *= self.reg[reg_b]
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -92,47 +91,58 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        self.running = True
+        IR = self.ram[self.pc]
+
+        if len(sys.argv) != 2:
+            print('Usage: cpy.py filename')
+            sys.exit(1)
+
+        self.program_filename = sys.argv[1]
+        self.load()
+
         while self.running:
-            ir = self.ram_read(self.pc)
-            self.branchtable[ir]()
-    
+            IR = self.ram[self.pc]
+            operand_a = self.ram_read(self.pc + 1)
+            operand_b = self.ram_read(self.pc + 2)
+
+            self.branch_table[IR](operand_a, operand_b)
+
     def ram_read(self, address):
         return self.ram[address]
 
     def ram_write(self, value, address):
         self.ram[address] = value
 
-    def handle_hlt(self):
-        self.running =False
+    def handle_halt(self, op_a, op_b):
+        self.running = False
 
-    def handle_ldi(self):
-        operand_a = self.ram-read(self.pc + 1)
-        operand_b = self.ram_read(self.pc + 2)
-        self.register[operand_a] = operand_b
+    def handle_ldi(self, op_a, op_b):
+        self.reg[op_a] = op_b
         self.pc += 3
 
-    def hanlde_prn(self):
-        operand_a = self.ram_read(self.pc + 1)
-        print(self.register[operand_a])
+    def handle_prn(self, op_a, op_b):
+        print(self.reg[op_a])
         self.pc += 2
 
-    def handle_mul(self):
-        operand_a = self.ram_read(self.pc + 1)
-        operand_b = self.ram_read(self.pc + 2)
-        self.register[operand_a] *= self.register[operand_b]
+    def handle_mul(self, op_a, op_b):
+        self.alu("MUL", op_a, op_b)
         self.pc += 3
 
-    def handle_push(self):
-        self.register[self.SPL] -= 1 
+    def handle_push(self, op_a, op_b):
         reg = self.ram_read(self.pc + 1)
-        val = self.register[reg]
-        self.ram_write(val, self.register[self.SPL])
+        val = self.reg[reg]
+        self.reg[self.sp] -= 1
+        self.ram_write(val, self.reg[self.sp])
         self.pc += 2
 
-    def handle_pop(self):
-        val = self.ram_read(self.register[self.SPL])
+    def handle_pop(self, op_a, op_b):
         reg = self.ram_read(self.pc + 1)
-        self.register[reg] = val
-        self.regiter[self.SPL] += 1
+        val = self.ram_read(self.reg[self.sp])
+        self.reg[reg] = val
+        self.reg[self.sp] += 1
         self.pc += 2
+
+
+cpu = CPU()
+cpu.load()
+# cpu.run()
